@@ -751,117 +751,178 @@ module.exports = {
 
   tutorialDetail: function(req, res) {
 
-    // Fake tutorials detail dictionary 
-    var tutorial = {
-      id: 1,
-      title: 'The best of Douglas Crockford on JavaScript.',
-      description: 'Understanding JavasScript the good parts.',
-      owner: 'sails-in-action',
-      created: 'a month ago',
-      updated: 'a month ago',
-      totalTime: '3h 22m 23s',
-      stars: 4,
-      videos: [
-        {
-          id: 55,
-          title: 'Crockford on JavaScript - Volume 1: The Early Years',
-          src: 'https://www.youtube.com/embed/JxAXlJEmNMg',
-          totalTime: '1h 1m 2s'
-        },
-        {
-          id: 56,
-          title: 'Crockford on JavaScript - Chapter 2: And Then There Was JavaScript',
-          src: 'https://www.youtube.com/embed/RO1Wnu-xKoY',
-          totalTime: '1h 1m 2s'
-        },
-        {
-          id: 57,
-          title: 'Crockford on JavaScript - Act III: Function the Ultimate',
-          src: 'https://www.youtube.com/embed/ya4UHuXNygM',
-          totalTime: '1h 1m 2s'
-        },
-        {
-          id: 58,
-          title: 'Crockford on JavaScript - Episode IV: The Metamorphosis of Ajax',
-          src: 'https://www.youtube.com/embed/Fv9qT9joc0M',
-          totalTime: '1h 1m 2s'
-        },
-        {
-          id: 59,
-          title: 'Crockford on JavaScript - Part 5: The End of All Things',
-          src: 'https://www.youtube.com/embed/47Ceot8yqeI',
-          totalTime: '1h 1m 2s'
-        },
-        {
-          id: 60,
-          title: 'Crockford on JavaScript - Scene 6: Loopage',
-          src: 'https://www.youtube.com/embed/QgwSUtYSUqA',
-          totalTime: '1h 1m 2s'
-        },
-        {
-          id: 61,
-          title: 'Crockford on JavaScript - Level 7: ECMAScript 5: The New Parts',
-          src: 'https://www.youtube.com/embed/UTEqr0IlFKY',
-          totalTime: '1h 1m 2s'
-        },
-        {
-          id: 62,
-          title: 'Crockford on JavaScript - Section 8: Programming Style & Your Brain',
-          src: 'https://www.youtube.com/embed/taaEzHI9xyY',
-          totalTime: '1h 1m 2s'
-        }
-      ]
-    };
+    Tutorial.findOne({
+      id: +req.param('id')
+    })
+    .populate('owner')
+    .populate('ratings')
+    .populate('videos')
+    .exec(function (err, foundTutorial){
+    if (err) return res.negotiate(err);
+    if (!foundTutorial) return res.notFound();
 
-    // If not logged in set `me` property to `null` and pass the tutorial to the view
-    if (!req.session.userId) {
-      return res.view('tutorials-detail', {
-        me: null,
-        stars: tutorial.stars,
-        tutorial: tutorial
+      // Find the user that created the tutorial
+      User.findOne({
+        id: foundTutorial.owner.id
+      }).exec(function (err, foundUser){
+        if (err) return res.negotiate(err);
+        if (!foundUser) return res.notFound();
+
+        // Find the rating (if any) of the currently authenticated user
+        Rating.findOne({
+          byUser: req.session.userId
+        }).exec(function(err, foundRating){
+          if (err) return res.negotiate(err);
+
+          /*
+            _____                     __                      
+           |_   _| __ __ _ _ __  ___ / _| ___  _ __ _ __ ___  
+             | || '__/ _` | '_ \/ __| |_ / _ \| '__| '_ ` _ \ 
+             | || | | (_| | | | \__ \  _| (_) | |  | | | | | |
+             |_||_|  \__,_|_| |_|___/_|  \___/|_|  |_| |_| |_|
+                                                    
+           */
+
+          // Set the tutorial.owner attribute to the username of the creator of the tutorial
+          foundTutorial.owner = foundUser.username;
+
+          /**********************************************************************************
+            Date Formatting
+          **********************************************************************************/
+
+          // Assign the time ago formatted date using `.getTimeAgo`
+          foundTutorial.created = DatetimeService.getTimeAgo({date: foundTutorial.createdAt});
+          foundTutorial.updated = DatetimeService.getTimeAgo({date: foundTutorial.updatedAt});
+
+          /**********************************************************************************
+            Rating the Tutorial
+          **********************************************************************************/
+
+          // If a rating exists by the currently authenticated user update foundTutorial.myRating
+          if (!foundRating) {
+            foundTutorial.myRating = null;
+          } else {
+            foundTutorial.myRating = foundRating.stars;
+          }
+
+          // Calculate the average of all existing ratings.
+          if (foundTutorial.ratings.length === 0) {
+            foundTutorial.averageRating = null;
+          } else {
+
+            // Assign the average to foundTutorial.averageRating
+            foundTutorial.averageRating = MathService.calculateAverage({ratings: foundTutorial.ratings})
+          }
+
+          /************************************
+           Tutorial & Video Length Formatting
+          *************************************/
+
+          // Format the total time for each video and for the tutorial as a whole.
+          var totalSeconds = 0;
+          _.each(foundTutorial.videos, function(video){
+
+            // Total the number of seconds for all videos for tutorial total time
+            totalSeconds = totalSeconds + video.lengthInSeconds;
+
+            // Format the video lengthInSeconds into xh xm xs format for each video
+            video.totalTime = DatetimeService.getHoursMinutesSeconds({totalSeconds: video.lengthInSeconds}).hoursMinutesSeconds;
+
+            // Format the total time for the tutorial
+            foundTutorial.totalTime = DatetimeService.getHoursMinutesSeconds({totalSeconds: totalSeconds}).hoursMinutesSeconds;
+          });
+
+          /**************
+            Video Order
+          ***************/
+
+          // Use the embedded `videoOrder` array to apply the manual sort order
+          // to our videos.
+          foundTutorial.videos = _.sortBy(foundTutorial.videos, function getRank (video) {
+            // We use the index of this video id within the `videoOrder` array as our sort rank.
+            // Because that array is in the proper order, if we use the index of this video id as
+            // the rank, then the newly sorted `tutorial.videos` array will be in the same order.
+            return _.indexOf(foundTutorial.videoOrder,video.id);
+          });
+
+          // Given (e.g.):
+          // tutorial.videoOrder= [3, 4, 5]
+          // tutorial.videos = [{id: 5}, {id: 4}, {id: 3}]
+          // 
+          // Yields (e.g.):
+          // tutorial.videos <== [{id: 3}, {id: 4}, {id: 5}]
+
+          /*
+            _                               _    ___        _   
+           | |    ___   __ _  __ _  ___  __| |  / _ \ _   _| |_ 
+           | |   / _ \ / _` |/ _` |/ _ \/ _` | | | | | | | | __|
+           | |__| (_) | (_| | (_| |  __/ (_| | | |_| | |_| | |_ 
+           |_____\___/ \__, |\__, |\___|\__,_|  \___/ \__,_|\__|
+                       |___/ |___/                              
+           */
+    
+          // If not logged in set `me` property to `null` and pass the tutorial to the view
+          if (!req.session.userId) {
+            return res.view('tutorials-detail', {
+              me: null,
+              // stars: foundTutorial.stars,
+              tutorial: foundTutorial
+            });
+          }
+
+          /*
+            _                               _   ___       
+           | |    ___   __ _  __ _  ___  __| | |_ _|_ __  
+           | |   / _ \ / _` |/ _` |/ _ \/ _` |  | || '_ \ 
+           | |__| (_) | (_| | (_| |  __/ (_| |  | || | | |
+           |_____\___/ \__, |\__, |\___|\__,_| |___|_| |_|
+                       |___/ |___/                        
+           */
+
+          User.findOne({
+            id: req.session.userId
+          })
+          .exec(function (err, loggedInUser) {
+            if (err) {
+              return res.negotiate(err);
+            }
+
+            if (!loggedInUser) {
+              sails.log.verbose('Session refers to a user who no longer exists- did you delete a user, then try to refresh the page with an open tab logged-in as that user?');
+              return res.view('tutorials-detail', {
+                me: null
+              });
+            }
+
+            // We'll provide `me` as a local to the profile page view.
+            // (this is so we can render the logged-in navbar state, etc.)
+            var me = {
+              gravatarURL: loggedInUser.gravatarURL,
+              username: loggedInUser.username,
+              admin: loggedInUser.admin
+            };
+
+            if (loggedInUser.username === foundTutorial.owner) {
+              me.isMe = true;
+
+              return res.view('tutorials-detail', {
+                me: me,
+                tutorial: foundTutorial
+              });
+
+            } else {
+              return res.view('tutorials-detail', {
+                me: {
+                  gravatarURL: loggedInUser.gravatarURL,
+                  username: loggedInUser.username,
+                  admin: loggedInUser.admin
+                },
+                tutorial: foundTutorial
+              });
+            }
+          });
+        });
       });
-    }
-
-    User.findOne(req.session.userId, function(err, user) {
-      if (err) {
-        return res.negotiate(err);
-      }
-
-      if (!user) {
-        sails.log.verbose('Session refers to a user who no longer exists- did you delete a user, then try to refresh the page with an open tab logged-in as that user?');
-        return res.view('tutorials-detail', {
-          me: null
-        });
-      }
-
-      // We'll provide `me` as a local to the profile page view.
-      // (this is so we can render the logged-in navbar state, etc.)
-      var me = {
-        gravatarURL: user.gravatarURL,
-        username: user.username,
-        admin: user.admin
-      };
-
-      if (user.username === tutorial.owner) {
-        me.isMe = true;
-
-        return res.view('tutorials-detail', {
-          me: me,
-          stars: tutorial.stars,
-          tutorial: tutorial
-        });
-
-      } else {
-        return res.view('tutorials-detail', {
-          me: {
-            gravatarURL: user.gravatarURL,
-            username: user.username,
-            admin: user.admin
-          },
-          stars: tutorial.stars,
-          tutorial: tutorial
-        });
-      }
     });
   },
 
@@ -889,36 +950,38 @@ module.exports = {
 
   editTutorial: function(req, res) {
 
-    // Fake tutorials detail dictionary 
-    var tutorial = {
-      title: 'The best of Douglas Crockford on JavaScript.',
-      description: 'Understanding JavaScript the good parts, and more.',
-      id: 1
-    };
+    Tutorial.findOne({
+      id: +req.param('id')
+    }).exec(function (err, foundTutorial){
+      if (err) return res.negotiate(err);
+      if (!foundTutorial) return res.notFound();
 
-    User.findOne({
-      id: +req.session.userId
-    }).exec(function (err, foundUser) {
-      if (err) {
-        return res.negotiate(err);
-      }
+      User.findOne({
+        id: +req.session.userId
+      }).exec(function (err, foundUser) {
+        if (err) return res.negotiate(err);
 
-      if (!foundUser) {
-        sails.log.verbose('Session refers to a user who no longer exists- did you delete a user, then try to refresh the page with an open tab logged-in as that user?');
-        return res.redirect('/tutorials');
-      }
-
-      return res.view('tutorials-detail-edit', {
-        me: {
-          gravatarURL: user.gravatarURL,
-          username: user.username,
-          admin: user.admin
-        },
-        tutorial: {
-          id: tutorial.id,
-          title: tutorial.title,
-          description: tutorial.description,
+        if (!foundUser) {
+          sails.log.verbose('Session refers to a user who no longer exists- did you delete a user, then try to refresh the page with an open tab logged-in as that user?');
+          return res.redirect('/tutorials');
         }
+
+        if (foundUser.username !== foundTutorial.owner.username) {
+          return res.redirect('/tutorials/'+foundTutorial.id);
+        }
+
+        return res.view('tutorials-detail-edit', {
+          me: {
+            gravatarURL: foundUser.gravatarURL,
+            username: foundUser.username,
+            admin: foundUser.admin
+          },
+          tutorial: {
+            id: foundTutorial.id,
+            title: foundTutorial.title,
+            description: foundTutorial.description,
+          }
+        });
       });
     });
   },

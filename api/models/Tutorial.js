@@ -1,9 +1,9 @@
 /**
-* Tutorial.js
-*
-* @description :: TODO: You might write a short summary of how this model works and what it represents here.
-* @docs        :: http://sailsjs.org/#!documentation/models
-*/
+ * User.js
+ *
+ * @description :: TODO: You might write a short summary of how this model works and what it represents here.
+ * @docs        :: http://sailsjs.org/#!documentation/models
+ */
 
 module.exports = {
 
@@ -18,13 +18,18 @@ module.exports = {
     },
 
     owner: {
-      type: 'json'
+      model: 'user'
     },
 
-    // owner: {
-    //   model: 'user'
+    //  owner: {
+    //   type: 'json'
     // },
-    
+
+    ratings: {
+      collection: 'rating',
+      via: 'byTutorial'
+    },
+     
     // An array of video ids representing the manual (human) ordering of videos. 
     videoOrder: {
       // e.g.
@@ -34,16 +39,10 @@ module.exports = {
       type: 'json'
       // (this is always ok because there will never be millions of videos per tutorial)
     },
-
+    
     videos: {
       collection: 'video',
       via: 'tutorialAssoc'
-    },
-
-    ratings: {
-      collection: 'rating',
-      via: 'byTutorial'
     }
   }
 };
-

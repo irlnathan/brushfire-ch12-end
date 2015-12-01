@@ -20,22 +20,5 @@ module.exports = {
     }).execSync();
 
     return niceTimeAgoString;
-  },
-
-  getHoursMinutesSeconds: function(options) {
-    
-    var hours = Math.floor(options.totalSeconds/ 60 / 60);
-    var minutes = Math.floor(options.totalSeconds / 60 % 60);
-    var seconds = options.totalSeconds % 60;
-
-    var hoursMinutesSeconds = hours + 'h ' + minutes + 'm ' + seconds + 's ';
-
-    return {
-      hoursMinutesSeconds: hoursMinutesSeconds,
-      hours: hours,
-      minutes: minutes,
-      seconds: seconds
-    };
   }
-
 };
